@@ -37,12 +37,14 @@ button{border:0;font:inherit;font-weight:600;padding:11px 16px;border-radius:10p
   <div class="row"><button id="go" class="primary">🦊 Kết nối & ký</button><button id="rt" class="ghost" hidden>Thử lại</button></div>
   <div id="hint">MetaMask sẽ hỏi xin kết nối + ký thông điệp. Trang này là cửa sổ chính (top-level) nên MetaMask hiển thị thông báo bình thường.</div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 <script>
 (function(){
   var params = new URLSearchParams(location.search);
   var MSG = params.get('msg') || '';
   var SID = params.get('k4201sid') || '';
   var STORE = 'https://script.google.com/macros/s/AKfycbwN4Aok_ee10_0F5_VSulXhY90FF7_2WL9fON_SymJghmxXnCq-jupePZJMSUgt6726vw/exec?mode=metamask_store';
+  var BCS = 'https://script.google.com/macros/s/AKfycbwN4Aok_ee10_0F5_VSulXhY90FF7_2WL9fON_SymJghmxXnCq-jupePZJMSUgt6726vw/exec?mode=bc_store';
 
   var st=document.getElementById('st'),ad=document.getElementById('ad'),go=document.getElementById('go'),rt=document.getElementById('rt'),busy=false;
 
@@ -100,9 +102,53 @@ button{border:0;font:inherit;font-weight:600;padding:11px 16px;border-radius:10p
     }
   }
 
+  async function runBc(){
+    busy=true;
+    go.disabled=true;
+    setS("<span class=sp></span> Dang gui yeu cau ky chung ky Health...");
+    try{
+      var accsB = await call("eth_requestAccounts",[]);
+      var addrB = accsB&&accsB[0]?String(accsB[0]).toLowerCase():"";
+      if(!addrB) throw{code:"no_account"};
+      setA("Ví: <b>"+addrB+"</b>");
+      var tsB = params.get("bcTs") || "", ovB = params.get("bcOverall") || "";
+      // BC-FIX v1.97: bat buoc ve Sepolia (0xaa36a7) truoc khi ky - giu giong bcEnsureSepolia o webapp.
+      var curChain = await call("eth_chainId",[]);
+      if (String(curChain).toLowerCase() !== "0xaa36a7") {
+        try { await call("wallet_switchEthereumChain",[{chainId:"0xaa36a7"}]); }
+        catch(eSw){
+          if (eSw && eSw.code === 4902) { await call("wallet_addEthereumChain",[{chainId:"0xaa36a7",chainName:"Sepolia",rpcUrls:["https://rpc.sepolia.org"],nativeCurrency:{name:"SepoliaETH",symbol:"ETH",decimals:18},blockExplorerUrls:["https://sepolia.etherscan.io"]}]); }
+          else throw eSw;
+        }
+      }
+      var reportHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify({machineId:"K-4201", ts: tsB})));
+      var providerB = new ethers.BrowserProvider(window.ethereum);
+      var signerB = await providerB.getSigner();
+      var contractB = new ethers.Contract("0xd5c06038BB753d2D019d5dfd9E746237fCDdAa2b", ["function record(string machineId, uint256 healthScore, bytes32 reportHash) returns (bytes32)"], signerB);
+      var txB = await contractB.record("K-4201", Number(ovB || 0), reportHash);
+      var receiptB = await txB.wait();
+      var certIdB = "";
+      try { for (var iB = 0; iB < (receiptB.logs||[]).length; iB++) { var parsedB = contractB.interface.parseLog(receiptB.logs[iB]); if (parsedB && parsedB.name === "CertificateRecorded") { certIdB = String(parsedB.args.id); break; } } } catch(e0) {}
+      await fetch(BCS, {method:"no-cors", headers:{"Content-Type":"text/plain;charset=UTF-8"}, body:JSON.stringify({sid:SID,address:addrB,txHash:txB.hash,blockNum:receiptB.blockNumber,certId:certIdB,reportHash:reportHash,ts:tsB,overall:ovB||0,err:""})}).catch(function(){});
+      window.__K4201_MM_RESULT__={ok:true,bc:true,address:addrB,sig:reportHash,txHash:txB.hash,blockNum:receiptB.blockNumber,certId:certIdB,msg:JSON.stringify({bc:true,ts:tsB,overall:ovB||0})};
+      setS("Đã ký + ghi nhận chứng chỉ Health thành công!...", "ok");
+      setTimeout(function(){try{window.close();}catch(e){}},2500);
+    }catch(e){
+      busy=false; go.disabled=false;
+      window.__K4201_MM_RESULT__={ok:false,bc:true,err:String((e&&e.code!==undefined?e.code:(e.message||e)))};
+      var cB=e&&(e.code!==undefined?e.code:(e.message||e)), mB;
+      if(cB===4001){cB="rejected";mB="Bạn đã từ chối yêu cầu trong MetaMask.";}
+      else if(cB===-32002){cB="pending";mB="MetaMask đang có yêu cầu khác cho xử lý. Mở extension MetaMask -> duyệt hoặc đóng popup rồi bấm Thử lại.";}
+      else{mB="Lỗi BC: "+((e&&e.message)||e);}
+      setS(mB,"err");
+      try{fetch(BCS,{method:"no-cors",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:JSON.stringify({sid:SID,address:"",txHash:"",blockNum:0,certId:"",reportHash:"",ts:"",overall:0,err:String(cB)})}).catch(function(){});}catch(_){}
+    }
+  }
+
   function run(){
     if(busy)return;
     busy=true;
+    if (params.get("bc") === "1") { runBc(); return; }
     go.disabled=true;
     setS("<span class=sp></span> Đang gửi yêu cầu kết nối đến MetaMask…");
     call("eth_requestAccounts",[]).then(function(a){
@@ -129,6 +175,7 @@ button{border:0;font:inherit;font-weight:600;padding:11px 16px;border-radius:10p
       else if(c==="no_account"){m="Không lấy được địa chỉ ví. Mở khóa MetaMask rồi bấm Thử lại.";}
       else{m="MetaMask lỗi (mã: "+c+"). Mở khóa ví rồi bấm Thử lại.";}
       try{window.__K4201_MM_RESULT__={ok:false,err:String(c)};}catch(_){}
+      try{fetch(STORE,{method:"no-cors",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:JSON.stringify({sid:SID,address:"",signature:"",message:MSG,err:String(c)})}).catch(function(){});}catch(_){}
       setS(m,"err");
       if(rt)rt.hidden=false;
     });
