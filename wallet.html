@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kết nối MetaMask — K-4201</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px 16px;font:15px/1.5 system-ui,"Segoe UI",Roboto,sans-serif;background:linear-gradient(160deg,#eef3f8,#dde8f4);color:#17304f}
+.card{width:100%;max-width:460px;padding:22px 22px 18px;border:1px solid #d5e0ed;border-radius:18px;background:#fff;box-shadow:0 18px 44px rgba(23,48,79,.16);text-align:center}
+.fox{font-size:44px;line-height:1}
+.card h1{font-size:19px;margin:8px 0 2px}
+.card p{margin:2px 0 10px;font-size:13px;color:#334155;line-height:1.5}
+#st{margin-top:14px;padding:12px;border-radius:11px;font-size:13px;line-height:1.5;background:#f4f8fc;color:#334155;word-break:break-word}
+#st.err{background:#fef2f2;color:#b91c1c}
+#st.ok{background:#f0fdf4;color:#15803d}
+#ad{margin:10px 0 0;padding:8px 10px;border-radius:9px;background:#f1f5f9;font:11px/1.45 ui-monospace,Consolas,monospace;word-break:break-all;color:#334155;min-height:14px;text-align:left}
+#dg{margin-top:8px;padding:8px;border-radius:9px;background:#f8fafc;font:11px/1.45 ui-monospace,Consolas,monospace;word-break:break-all;color:#5b6c83}
+#hint{margin-top:10px;font-size:11px;color:#6b7f95}
+.row{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+button{border:0;font:inherit;font-weight:600;padding:11px 16px;border-radius:10px;cursor:pointer}
+.primary{background:#17304f;color:#fff}
+.primary[disabled]{opacity:.55;cursor:default}
+.ghost{background:#fff;color:#17304f;border:1px solid #17304f}
+.sp{display:inline-block;width:15px;height:15px;vertical-align:-3px;border:2px solid #c7d2fe;border-top-color:#1d4ed8;border-radius:50%;animation:sp-spin .8s linear infinite}
+@keyframes sp-spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="fox">🦊</div>
+  <h1>Kết nối MetaMask</h1>
+  <p>Ký thông điệp để đăng nhập vào ứng dụng K-4201.</p>
+  <div id="st">Đang kiểm tra MetaMask…</div>
+  <div id="ad"></div>
+  <div id="dg" style="margin-top:8px;padding:8px;border-radius:9px;background:#f8fafc;font:11px/1.45 ui-monospace,Consolas,monospace;word-break:break-all;color:#5b6c83"></div>
+  <div class="row"><button id="go" class="primary">🦊 Kết nối & ký</button><button id="rt" class="ghost" hidden>Thử lại</button></div>
+  <div id="hint">MetaMask sẽ hỏi xin kết nối + ký thông điệp. Trang này là cửa sổ chính (top-level) nên MetaMask hiển thị thông báo bình thường.</div>
+</main>
+<script>
+(function(){
+  var params = new URLSearchParams(location.search);
+  var MSG = params.get('msg') || '';
+  var SID = params.get('k4201sid') || '';
+  var STORE = 'https://script.google.com/macros/s/AKfycbwN4Aok_ee10_0F5_VSulXhY90FF7_2WL9fON_SymJghmxXnCq-jupePZJMSUgt6726vw/exec?mode=metamask_store';
+
+  var st=document.getElementById('st'),ad=document.getElementById('ad'),go=document.getElementById('go'),rt=document.getElementById('rt'),busy=false;
+
+  function setS(h,c){st.className=c||"";st.innerHTML=h;}
+  function setA(h){ad.innerHTML=h;}
+
+  function metamaskReady(){
+    return new Promise(function(res){
+      if(window.ethereum)return res(window.ethereum);
+      var n=0,t=setInterval(function(){
+        if(window.ethereum){clearInterval(t);res(window.ethereum);}
+        else if(++n>25){clearInterval(t);res(null);}
+      },150);
+    });
+  }
+
+  function call(method,params){
+    return new Promise(function(res,rej){
+      try{
+        var p=window.ethereum.request({method:method,params:params});
+        var t=setTimeout(function(){rej({code:"k4201_timeout"});},25000);
+        Promise.resolve(p).then(function(v){clearTimeout(t);res(v);},function(e){clearTimeout(t);rej(e||{code:"unknown"});});
+      }catch(err){rej(err);}
+    });
+  }
+
+  function collectInfo(){
+    try{
+      var e=window.ethereum,a=[];
+      a.push("ethereum="+(typeof e)+(e&&e.isMetaMask?" (MetaMask)":(e?" (provider khác)":"")));
+      if(e){
+        a.push("isMetaMask="+String(e.isMetaMask));
+        if(e.chainId)a.push("chainId="+e.chainId);
+        if(e.selectedAddress)a.push("selectedAddress="+String(e.selectedAddress));
+        if(e.providers&&e.providers.length)a.push("providers="+e.providers.length);
+      }
+      var dg=document.getElementById("dg");
+      if(dg)dg.textContent=a.join(" | ")+" | accounts=đang kiểm tra...";
+      var p=null;
+      try{p=window.ethereum.request({method:"eth_accounts"});}catch(err0){
+        if(dg)dg.textContent=a.join(" | ")+" | eth_accounts lỗi: "+String(err0);
+        return;
+      }
+      var timeout=setTimeout(function(){if(dg)dg.textContent=a.join(" | ")+" | eth_accounts KHÔNG phản hồi (25s)"},25000);
+      Promise.resolve(p).then(function(accs){
+        clearTimeout(timeout);
+        if(dg)dg.textContent=a.join(" | ")+" | accounts="+JSON.stringify(accs);
+      },function(err2){
+        clearTimeout(timeout);
+        if(dg)dg.textContent=a.join(" | ")+" | eth_accounts=ERR: "+String((err2&&err2.code)||err2||"?");
+      });
+    }catch(err){
+      var dg=document.getElementById("dg");
+      if(dg)dg.textContent="Diagnostic error: "+String(err);
+    }
+  }
+
+  function run(){
+    if(busy)return;
+    busy=true;
+    go.disabled=true;
+    setS("<span class=sp></span> Đang gửi yêu cầu kết nối đến MetaMask…");
+    call("eth_requestAccounts",[]).then(function(a){
+      var addr=a&&a[0]?String(a[0]).toLowerCase():"";
+      if(!addr)throw{code:"no_account"};
+      setA("Ví: <b>"+addr+"</b>");
+      setS("<span class=sp></span> Đã thấy ví. Hãy bấm ký trong cửa sổ MetaMask…");
+      return call("personal_sign",[MSG,addr]).then(function(sig){
+        window.__K4201_MM_RESULT__={ok:true,address:addr,sig:sig,msg:MSG};
+        setS("Đã ký xong! Quay lại tab K-4201 để hoàn tất đăng nhập.","ok");
+        setTimeout(function(){try{window.close();}catch(e){}},1500);
+        fetch(STORE,{
+          method:"POST",mode:"no-cors",
+          headers:{"Content-Type":"text/plain;charset=UTF-8"},
+          body:JSON.stringify({sid:SID,address:addr,signature:sig,message:MSG,err:""})
+        }).catch(function(){});
+      });
+    }).catch(function(e){
+      busy=false;go.disabled=false;
+      var c=e&&(e.code!==undefined?e.code:(e.message||"unknown")),m;
+      if(c===4001){c="rejected";m="Bạn đã hủy yêu cầu trong MetaMask.";}
+      else if(c===-32002){c="pending";m="MetaMask đang có yêu cầu khác cho xử lý. Mở extension xác nhận/hủy rồi bấm Thử lại.";}
+      else if(c==="k4201_timeout"){m="MetaMask KHÔNG phản hồi sau 25s.<br>Có thể extension bị treo: vào chrome://extensions bat/tat MetaMask (hoặc cập nhật MetaMask), khởi động lại trình duyệt, rồi bấm Thử lại.";}
+      else if(c==="no_account"){m="Không lấy được địa chỉ ví. Mở khóa MetaMask rồi bấm Thử lại.";}
+      else{m="MetaMask lỗi (mã: "+c+"). Mở khóa ví rồi bấm Thử lại.";}
+      try{window.__K4201_MM_RESULT__={ok:false,err:String(c)};}catch(_){}
+      setS(m,"err");
+      if(rt)rt.hidden=false;
+    });
+  }
+
+  go.addEventListener("click",run);
+  if(rt)rt.addEventListener("click",run);
+
+  window.onerror=function(msg,src,line){setS("Lỗi JS: "+String(msg)+" @ dòng "+line,"err");return false;};
+
+  metamaskReady().then(function(eth){
+    if(!eth){
+      setS("Không tìm thấy MetaMask trong cửa sổ này.<br>Hãy cài đặt hoặc mở khóa MetaMask rồi bấm Thử lại (reload trang).","err");
+      go.disabled=true;
+      return;
+    }
+    setS("MetaMask sẵn sàng.<br>Bấm nút Kết nối & ký bên dưới để bắt đầu.", "");
+    collectInfo();
+    if(rt)rt.hidden=true;
+  });
+})();
+</script>
+</body>
+</html>
